@@ -2713,6 +2713,7 @@ pub fn supported_ids() -> Vec<HidIoCommandId> {
         HidIoCommandId::TerminalCmd,
         HidIoCommandId::TerminalOut,
         HidIoCommandId::TestPacket,
+        HidIoCommandId::Volume,
     ]
 }
 
