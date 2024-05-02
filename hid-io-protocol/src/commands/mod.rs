@@ -22,8 +22,7 @@
 // ----- Crates -----
 
 use super::*;
-use core::convert::{TryFrom, TryInto};
-use heapless::{String, Vec};
+use heapless::String;
 
 #[cfg(feature = "defmt")]
 use defmt::trace;
@@ -987,6 +986,85 @@ pub mod h0051 {
     pub struct Nak {}
 }
 
+pub mod h0060 {
+    use heapless::String;
+    use num_enum::TryFromPrimitive;
+
+    #[repr(u16)]
+    #[derive(PartialEq, Eq, Clone, Copy, Debug, TryFromPrimitive)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    pub enum Command {
+        Set = 0x0000,
+        Inc = 0x0001,
+        Dec = 0x0002,
+        Mute = 0x0003,
+        UnMute = 0x0004,
+        ToggleMute = 0x0005,
+        InvalidCommand = 0x9999,
+    }
+
+    impl TryFrom<Command> for u16 {
+        type Error = ();
+        fn try_from(command: Command) -> Result<Self, Self::Error> {
+            match command {
+                Command::Set => Ok(0x0000),
+                Command::Inc => Ok(0x0001),
+                Command::Dec => Ok(0x0002),
+                Command::Mute => Ok(0x0003),
+                Command::UnMute => Ok(0x0004),
+                Command::ToggleMute => Ok(0x0005),
+                _ => Err(()),
+            }
+        }
+    }
+
+    impl TryFrom<&str> for Command {
+        type Error = ();
+        fn try_from(s: &str) -> Result<Self, Self::Error> {
+            match s {
+                "set" => Ok(Command::Set),
+                "inc" => Ok(Command::Inc),
+                "dec" => Ok(Command::Dec),
+                "mute" => Ok(Command::Mute),
+                "unmute" => Ok(Command::UnMute),
+                "togglemute" => Ok(Command::ToggleMute),
+                _ => Err(()),
+            }
+        }
+    }
+
+    impl TryFrom<Command> for &str {
+        type Error = ();
+        fn try_from(c: Command) -> Result<Self, Self::Error> {
+            match c {
+                Command::Set => Ok("set"),
+                Command::Inc => Ok("inc"),
+                Command::Dec => Ok("dec"),
+                Command::Mute => Ok("mute"),
+                Command::UnMute => Ok("unmute"),
+                Command::ToggleMute => Ok("togglemute"),
+                _ => Err(()),
+            }
+        }
+    }
+
+    #[derive(Clone, Debug)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    pub struct Cmd<const V: usize> {
+        pub command: Command,
+        pub vol: u16,
+        pub app: String<V>,
+    }
+
+    #[derive(Clone, Debug)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    pub struct Ack {}
+
+    #[derive(Clone, Debug)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    pub struct Nak {}
+}
+
 // ----- Traits -----
 
 /// HID-IO Command Interface
@@ -1138,6 +1216,7 @@ pub trait Commands<
             }
         }
 
+        // ADD COMMANDS HERE
         // Match id
         trace!("rx_message_handling: {:?}", buf);
         match buf.id {
@@ -1156,6 +1235,7 @@ pub trait Commands<
             HidIoCommandId::TerminalOut => self.h0034_terminalout_handler(buf),
             HidIoCommandId::ManufacturingTest => self.h0050_manufacturing_handler(buf),
             HidIoCommandId::ManufacturingResult => self.h0051_manufacturingres_handler(buf),
+            HidIoCommandId::Volume => self.h0060_volume_handler(buf),
             _ => Err(CommandError::IdNotMatched(buf.id)),
         }
     }
@@ -2546,4 +2626,86 @@ pub trait Commands<
             _ => Ok(()),
         }
     }
+
+    fn h0060_volume(&mut self, data: h0060::Cmd<HSUB4>) -> Result<(), CommandError> {
+        // Create appropriately sized buffer
+        let mut buf = HidIoPacketBuffer::<H> {
+            // Test packet id
+            id: HidIoCommandId::Volume,
+            // Detect max size
+            max_len: self.default_packet_chunk(),
+            // Use defaults for other fields
+            ..Default::default()
+        };
+
+        // Build payload
+        if !buf.append_payload(&(data.command as u16).to_le_bytes()) {
+            return Err(CommandError::DataVecTooSmall);
+        }
+        if !buf.append_payload(&data.vol.to_le_bytes()) {
+            return Err(CommandError::DataVecTooSmall);
+        }
+        if !buf.append_payload(data.app.as_bytes()) {
+            return Err(CommandError::DataVecTooSmall);
+        }
+        buf.done = true;
+
+        self.tx_packetbuffer_send(&mut buf)
+    }
+    fn h0060_volume_cmd(&mut self, _data: h0060::Cmd<HSUB4>) -> Result<h0060::Ack, h0060::Nak> {
+        Err(h0060::Nak {})
+    }
+    fn h0060_volume_nacmd(&mut self, _data: h0060::Cmd<HSUB4>) -> Result<(), CommandError> {
+        Err(CommandError::IdNotImplemented(
+            HidIoCommandId::Volume,
+            HidIoPacketType::NaData,
+        ))
+    }
+    fn h0060_volume_ack(&mut self, _data: h0060::Ack) -> Result<(), CommandError> {
+        Err(CommandError::IdNotImplemented(
+            HidIoCommandId::Volume,
+            HidIoPacketType::Ack,
+        ))
+    }
+    fn h0060_volume_nak(&mut self, _data: h0060::Nak) -> Result<(), CommandError> {
+        Err(CommandError::IdNotImplemented(
+            HidIoCommandId::Volume,
+            HidIoPacketType::Nak,
+        ))
+    }
+    fn h0060_volume_handler(&mut self, buf: HidIoPacketBuffer<H>) -> Result<(), CommandError> {
+        // Handle packet type
+        match buf.ptype {
+            HidIoPacketType::Data => {
+                // Copy data into struct
+                let mut cmd = h0060::Cmd::<HSUB4> {
+                    command: h0060::Command::try_from(u16::from_le_bytes(
+                        buf.data[0..2].try_into().unwrap(),
+                    ))
+                    .unwrap(),
+                    vol: u16::from_le_bytes(buf.data[2..4].try_into().unwrap()),
+                    app: String::<HSUB4>::new(),
+                };
+                cmd.app
+                    .push_str(match core::str::from_utf8(&buf.data[4..]) {
+                        Ok(string) => string,
+                        Err(e) => {
+                            return Err(CommandError::InvalidUtf8(Utf8Error::new(e)));
+                        }
+                    })
+                    .unwrap();
+
+                match self.h0060_volume_cmd(cmd) {
+                    Ok(_ack) => self.empty_ack(buf.id),
+                    Err(_nak) => self.empty_nak(buf.id),
+                }
+            }
+            HidIoPacketType::NaData => Err(CommandError::InvalidPacketBufferType(buf.ptype)),
+            HidIoPacketType::Ack => Ok(()),
+            HidIoPacketType::Nak => Ok(()),
+            _ => Ok(()),
+        }
+    }
+    //  ADD COMMANDS HERE
+    //  you can use h0060_volume stuff as an example of how to create functions
 }

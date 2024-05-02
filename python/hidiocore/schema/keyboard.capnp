@@ -62,6 +62,12 @@ interface Keyboard extends(HidIo.Node) {
         manufacturingResult @5;
         # Subscribe to Manufacturing Results
         # Used when getting the asynchronous updates from Manufacturing tests
+
+        volume @6;
+        # Subscribe to Volume
+        # Useful for volume control
+
+        # ADD COMMANDS HERE
     }
 
 
@@ -69,6 +75,20 @@ interface Keyboard extends(HidIo.Node) {
         struct Cli {
             # Cli Message output text
             output @0 :Text;
+        }
+
+        struct Volume {
+            enum Command {
+                set @0;
+                inc @1;
+                dec @2;
+                mute @3;
+                unMute @4;
+                toggleMute @5;
+            }
+            cmd @0 :Command;
+            vol @1 :UInt16;
+            app @2 :Text;
         }
 
         struct KLL {
@@ -94,6 +114,8 @@ interface Keyboard extends(HidIo.Node) {
             data @2 :List(UInt8);
         }
 
+        # ADD COMMANDS HERE
+
         time @0 :UInt64;
         # Signal event timestamp
 
@@ -112,6 +134,9 @@ interface Keyboard extends(HidIo.Node) {
 
             manufacturing @5 :ManufacturingResult;
             # Manufacturing message
+
+            volume @6 :Volume;
+            # Volume command message
         }
     }
 

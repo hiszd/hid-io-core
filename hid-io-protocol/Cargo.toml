@@ -1,7 +1,7 @@
 [package]
 name          = "hid-io-protocol"
 version       = "0.1.6"
-authors       = ["Jacob Alexander <haata@kiibohd.com>"]
+authors       = ["Jacob Alexander <haata@kiibohd.com>", "Zion Koyl <hiszd1@gmail.com>"]
 license       = "MIT OR Apache-2.0"
 description   = """
 HID-IO protocol implementation for both servers and devices.
@@ -37,7 +37,7 @@ defmt = ["dep:defmt", "heapless/defmt-impl", "kll-core/defmt"]
 [dependencies]
 defmt           = { version = "0.3", optional = true }
 heapless        = { version = "0.7" }
-kll-core        = { version = "0.1" }
+kll-core        = { path = "../../kiibohd-core/kll-core", version = "0.1" }
 log             = { version = "0.4", default-features = false }
 num_enum        = { version = "0.5", default-features = false }
 

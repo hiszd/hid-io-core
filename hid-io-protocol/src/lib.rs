@@ -82,6 +82,7 @@ pub enum HidIoPacketType {
 #[repr(u32)]
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+//  ADD COMMANDS HERE
 /// Requests for to perform a specific action
 pub enum HidIoCommandId {
     SupportedIds = 0x00,
@@ -125,6 +126,8 @@ pub enum HidIoCommandId {
 
     ManufacturingTest = 0x50,
     ManufacturingResult = 0x51,
+
+    Volume = 0x60,
 
     Unused = 0xFFFF,
 }

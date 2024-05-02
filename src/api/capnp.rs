@@ -553,6 +553,7 @@ impl KeyboardNodeImpl {
 
 impl common_capnp::node::Server for KeyboardNodeImpl {}
 
+//  ADD COMMANDS HERE
 impl hidio_capnp::node::Server for KeyboardNodeImpl {
     fn cli_command(
         &mut self,
@@ -632,6 +633,99 @@ impl hidio_capnp::node::Server for KeyboardNodeImpl {
                     Err(e) => Promise::err(capnp::Error {
                         kind: ::capnp::ErrorKind::Failed,
                         description: format!("Error (cli_command): {e:?}"),
+                    }),
+                }
+            }
+            _ => Promise::err(capnp::Error {
+                kind: ::capnp::ErrorKind::Failed,
+                description: "Insufficient authorization level".to_string(),
+            }),
+        }
+    }
+
+    fn vol_command(
+        &mut self,
+        params: hidio_capnp::node::VolCommandParams,
+        _results: hidio_capnp::node::VolCommandResults,
+    ) -> Promise<(), Error> {
+        match self.auth {
+            AuthLevel::Secure | AuthLevel::Debug => {
+                let params = params.get().unwrap();
+                let command = match params.get_command().unwrap().get_cmd().unwrap() {
+                    hidio_capnp::node::volume_cmd::Command::Set => h0060::Command::Set,
+                    hidio_capnp::node::volume_cmd::Command::Inc => h0060::Command::Inc,
+                    hidio_capnp::node::volume_cmd::Command::Dec => h0060::Command::Dec,
+                    hidio_capnp::node::volume_cmd::Command::Mute => h0060::Command::Mute,
+                    hidio_capnp::node::volume_cmd::Command::UnMute => h0060::Command::UnMute,
+                    hidio_capnp::node::volume_cmd::Command::ToggleMute => {
+                        h0060::Command::ToggleMute
+                    }
+                };
+                let vol = params.get_command().unwrap().get_vol();
+                let app = params.get_command().unwrap().get_app().unwrap();
+                let src = mailbox::Address::ApiCapnp { uid: self.node.uid };
+                let dst = mailbox::Address::DeviceHidio { uid: self.uid };
+
+                struct CommandInterface {
+                    src: mailbox::Address,
+                    dst: mailbox::Address,
+                    mailbox: mailbox::Mailbox,
+                    result: Result<h0060::Ack, h0060::Nak>,
+                }
+                impl
+                    Commands<
+                        { mailbox::HIDIO_PKT_BUF_DATA_SIZE },
+                        { mailbox::HIDIO_PKT_BUF_DATA_SIZE - 1 },
+                        { mailbox::HIDIO_PKT_BUF_DATA_SIZE - 2 },
+                        { mailbox::HIDIO_PKT_BUF_DATA_SIZE - 4 },
+                        0,
+                    > for CommandInterface
+                {
+                    fn tx_packetbuffer_send(
+                        &mut self,
+                        buf: &mut mailbox::HidIoPacketBuffer,
+                    ) -> Result<(), CommandError> {
+                        if let Some(rcvmsg) = self.mailbox.try_send_message(mailbox::Message {
+                            src: self.src,
+                            dst: self.dst,
+                            data: buf.clone(),
+                        })? {
+                            // Handle ack/nak
+                            self.rx_message_handling(rcvmsg.data)?;
+                        }
+                        Ok(())
+                    }
+                    fn h0060_volume_ack(&mut self, data: h0060::Ack) -> Result<(), CommandError> {
+                        self.result = Ok(data);
+                        Ok(())
+                    }
+                    fn h0060_volume_nak(&mut self, data: h0060::Nak) -> Result<(), CommandError> {
+                        self.result = Err(data);
+                        Ok(())
+                    }
+                }
+                let mut intf = CommandInterface {
+                    src,
+                    dst,
+                    mailbox: self.mailbox.clone(),
+                    result: Err(h0060::Nak {}),
+                };
+
+                // Send command
+                let cmd = h0060::Cmd { command, vol, app: app.into() };
+                if let Err(e) = intf.h0060_volume(cmd.clone()) {
+                    return Promise::err(capnp::Error {
+                        kind: ::capnp::ErrorKind::Failed,
+                        description: format!("Error (vol_command): {:?} {:?}", cmd, e),
+                    });
+                }
+
+                // Wait for Ack/Nak
+                match intf.result {
+                    Ok(_msg) => Promise::ok(()),
+                    Err(e) => Promise::err(capnp::Error {
+                        kind: ::capnp::ErrorKind::Failed,
+                        description: format!("Error (vol_command): {e:?}"),
                     }),
                 }
             }
@@ -2247,16 +2341,19 @@ async fn server_subscriptions_keyboard(
             //  host macro (TODO)
             //  kll trigger (TODO)
             //  layer (TODO)
+            //  ADD COMMANDS HERE
             let mut stream = stream.filter(|msg| {
-                (msg.data.ptype == HidIoPacketType::Data
+                return (msg.data.ptype == HidIoPacketType::Data
                     || msg.data.ptype == HidIoPacketType::NaData)
                     && (msg.data.id == HidIoCommandId::TerminalOut
                         || msg.data.id == HidIoCommandId::KllState
                         || msg.data.id == HidIoCommandId::HostMacro
-                        || msg.data.id == HidIoCommandId::ManufacturingResult)
+                        || msg.data.id == HidIoCommandId::Volume
+                        || msg.data.id == HidIoCommandId::ManufacturingResult);
             });
 
             // Handle stream
+            // ADD COMMANDS HERE
             while let Some(msg) = stream.next().await {
                 let src = msg.src;
                 let dst = msg.dst;
@@ -2359,6 +2456,88 @@ async fn server_subscriptions_keyboard(
                             result.set(i as u32, *f);
                         }
                         Ok(h0051::Ack {})
+                    }
+                    fn h0060_volume_cmd(
+                        &mut self,
+                        data: h0060::Cmd<{ mailbox::HIDIO_PKT_BUF_DATA_SIZE - 4 }>,
+                    ) -> Result<h0060::Ack, h0060::Nak> {
+                        // Build Signal message
+                        let mut signal = self.request.get().init_signal();
+                        signal.set_time(
+                            std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .expect("Time went backwards")
+                                .as_millis() as u64,
+                        );
+                        let mut result = signal.init_data().init_volume();
+                        let command = match data.command {
+                            h0060::Command::Set => {
+                                keyboard_capnp::keyboard::signal::volume::Command::Set
+                            }
+                            h0060::Command::Inc => {
+                                keyboard_capnp::keyboard::signal::volume::Command::Inc
+                            }
+                            h0060::Command::Dec => {
+                                keyboard_capnp::keyboard::signal::volume::Command::Dec
+                            }
+                            h0060::Command::Mute => {
+                                keyboard_capnp::keyboard::signal::volume::Command::Mute
+                            }
+                            h0060::Command::UnMute => {
+                                keyboard_capnp::keyboard::signal::volume::Command::UnMute
+                            }
+                            h0060::Command::ToggleMute => {
+                                keyboard_capnp::keyboard::signal::volume::Command::ToggleMute
+                            }
+                            _ => {
+                                return Err(h0060::Nak {});
+                            }
+                        };
+                        result.set_cmd(command);
+                        result.set_vol(data.vol);
+                        result.set_app(&data.app);
+                        Ok(h0060::Ack {})
+                    }
+                    fn h0060_volume_nacmd(
+                        &mut self,
+                        data: h0060::Cmd<{ mailbox::HIDIO_PKT_BUF_DATA_SIZE - 4 }>,
+                    ) -> Result<(), CommandError> {
+                        // Build Signal message
+                        let mut signal = self.request.get().init_signal();
+                        signal.set_time(
+                            std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .expect("Time went backwards")
+                                .as_millis() as u64,
+                        );
+                        let mut result = signal.init_data().init_volume();
+                        let command = match data.command {
+                            h0060::Command::Set => {
+                                keyboard_capnp::keyboard::signal::volume::Command::Set
+                            }
+                            h0060::Command::Inc => {
+                                keyboard_capnp::keyboard::signal::volume::Command::Inc
+                            }
+                            h0060::Command::Dec => {
+                                keyboard_capnp::keyboard::signal::volume::Command::Dec
+                            }
+                            h0060::Command::Mute => {
+                                keyboard_capnp::keyboard::signal::volume::Command::Mute
+                            }
+                            h0060::Command::UnMute => {
+                                keyboard_capnp::keyboard::signal::volume::Command::UnMute
+                            }
+                            h0060::Command::ToggleMute => {
+                                keyboard_capnp::keyboard::signal::volume::Command::ToggleMute
+                            }
+                            _ => {
+                                return Err(CommandError::TestFailure);
+                            }
+                        };
+                        result.set_cmd(command);
+                        result.set_vol(data.vol);
+                        result.set_app(&data.app);
+                        Ok(())
                     }
                 }
 
@@ -2697,6 +2876,7 @@ async fn server_subscriptions(
     Ok(())
 }
 
+//  ADD COMMANDS HERE
 /// Supported Ids by this module
 pub fn supported_ids() -> Vec<HidIoCommandId> {
     vec![
@@ -2712,6 +2892,7 @@ pub fn supported_ids() -> Vec<HidIoCommandId> {
         HidIoCommandId::SupportedIds,
         HidIoCommandId::TerminalCmd,
         HidIoCommandId::TerminalOut,
+        HidIoCommandId::Volume,
         HidIoCommandId::TestPacket,
     ]
 }

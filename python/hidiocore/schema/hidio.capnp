@@ -414,6 +414,19 @@ interface Node extends(Common.Node) {
         # Name of the HID-IO Command Id
     }
 
+    struct VolumeCmd {
+      enum Command {
+        set @0;
+        inc @1;
+        dec @2;
+        mute @3;
+        unMute @4;
+        toggleMute @5;
+      }
+      cmd @0 :Command;
+      vol @1 :UInt16;
+      app @2 :Text;
+    }
 
     cliCommand @0 (command :Text) -> ();
     # CLI command
@@ -446,4 +459,8 @@ interface Node extends(Common.Node) {
 
     pixelSet @8 (command :PixelSet) -> (status :PixelSetStatus);
     # Sets specific LED channels
+
+    volCommand @9 (command :VolumeCmd);
+    # Volume command
+
 }
