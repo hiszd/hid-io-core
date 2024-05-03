@@ -1065,6 +1065,25 @@ pub mod h0060 {
     pub struct Nak {}
 }
 
+pub mod h0061 {
+    // use heapless::String;
+    // use num_enum::TryFromPrimitive;
+
+    #[derive(Clone, Debug)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    pub struct Cmd {
+        pub layer: u16,
+    }
+
+    #[derive(Clone, Debug)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    pub struct Ack {}
+
+    #[derive(Clone, Debug)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    pub struct Nak {}
+}
+
 // ----- Traits -----
 
 /// HID-IO Command Interface
@@ -1236,6 +1255,7 @@ pub trait Commands<
             HidIoCommandId::ManufacturingTest => self.h0050_manufacturing_handler(buf),
             HidIoCommandId::ManufacturingResult => self.h0051_manufacturingres_handler(buf),
             HidIoCommandId::Volume => self.h0060_volume_handler(buf),
+            HidIoCommandId::LayerSet => self.h0061_layerset_handler(buf),
             _ => Err(CommandError::IdNotMatched(buf.id)),
         }
     }
@@ -2703,6 +2723,67 @@ pub trait Commands<
             HidIoPacketType::NaData => Err(CommandError::InvalidPacketBufferType(buf.ptype)),
             HidIoPacketType::Ack => Ok(()),
             HidIoPacketType::Nak => Ok(()),
+            _ => Ok(()),
+        }
+    }
+
+    fn h0061_layerset(&mut self, data: h0061::Cmd) -> Result<(), CommandError> {
+        // Create appropriately sized buffer
+        let mut buf = HidIoPacketBuffer::<H> {
+            // Test packet id
+            id: HidIoCommandId::LayerSet,
+            // Detect max size
+            max_len: self.default_packet_chunk(),
+            // Use defaults for other fields
+            ..Default::default()
+        };
+
+        // Build payload
+        if !buf.append_payload(&data.layer.to_le_bytes()) {
+            return Err(CommandError::DataVecTooSmall);
+        }
+        buf.done = true;
+
+        self.tx_packetbuffer_send(&mut buf)
+    }
+    fn h0061_layerset_cmd(&mut self, _data: h0061::Cmd) -> Result<h0061::Ack, h0061::Nak> {
+        Err(h0061::Nak {})
+    }
+    fn h0061_layerset_nacmd(&mut self, _data: h0061::Cmd) -> Result<(), CommandError> {
+        Err(CommandError::IdNotImplemented(
+            HidIoCommandId::LayerSet,
+            HidIoPacketType::NaData,
+        ))
+    }
+    fn h0061_layerset_ack(&mut self, _data: h0061::Ack) -> Result<(), CommandError> {
+        Err(CommandError::IdNotImplemented(
+            HidIoCommandId::LayerSet,
+            HidIoPacketType::Ack,
+        ))
+    }
+    fn h0061_layerset_nak(&mut self, _data: h0061::Nak) -> Result<(), CommandError> {
+        Err(CommandError::IdNotImplemented(
+            HidIoCommandId::LayerSet,
+            HidIoPacketType::Nak,
+        ))
+    }
+    fn h0061_layerset_handler(&mut self, buf: HidIoPacketBuffer<H>) -> Result<(), CommandError> {
+        // Handle packet type
+        match buf.ptype {
+            HidIoPacketType::Data => {
+                // Copy data into struct
+                let cmd = h0061::Cmd {
+                    layer: u16::from_le_bytes(buf.data[0..2].try_into().unwrap()),
+                };
+
+                match self.h0061_layerset_cmd(cmd) {
+                    Ok(_ack) => self.empty_ack(buf.id),
+                    Err(_nak) => self.empty_nak(buf.id),
+                }
+            }
+            HidIoPacketType::NaData => Err(CommandError::InvalidPacketBufferType(buf.ptype)),
+            HidIoPacketType::Ack => self.h0061_layerset_ack(h0061::Ack {}),
+            HidIoPacketType::Nak => self.h0061_layerset_nak(h0061::Nak {}),
             _ => Ok(()),
         }
     }

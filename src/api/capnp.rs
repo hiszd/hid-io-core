@@ -712,7 +712,11 @@ impl hidio_capnp::node::Server for KeyboardNodeImpl {
                 };
 
                 // Send command
-                let cmd = h0060::Cmd { command, vol, app: app.into() };
+                let cmd = h0060::Cmd {
+                    command,
+                    vol,
+                    app: app.into(),
+                };
                 if let Err(e) = intf.h0060_volume(cmd.clone()) {
                     return Promise::err(capnp::Error {
                         kind: ::capnp::ErrorKind::Failed,
@@ -726,6 +730,88 @@ impl hidio_capnp::node::Server for KeyboardNodeImpl {
                     Err(e) => Promise::err(capnp::Error {
                         kind: ::capnp::ErrorKind::Failed,
                         description: format!("Error (vol_command): {e:?}"),
+                    }),
+                }
+            }
+            _ => Promise::err(capnp::Error {
+                kind: ::capnp::ErrorKind::Failed,
+                description: "Insufficient authorization level".to_string(),
+            }),
+        }
+    }
+
+    fn layer_set_command(
+        &mut self,
+        params: hidio_capnp::node::LayerSetCommandParams,
+        _results: hidio_capnp::node::LayerSetCommandResults,
+    ) -> Promise<(), Error> {
+        match self.auth {
+            AuthLevel::Secure | AuthLevel::Debug => {
+                let params = params.get().unwrap();
+                let layer = params.get_layer();
+                let src = mailbox::Address::ApiCapnp { uid: self.node.uid };
+                let dst = mailbox::Address::DeviceHidio { uid: self.uid };
+
+                struct CommandInterface {
+                    src: mailbox::Address,
+                    dst: mailbox::Address,
+                    mailbox: mailbox::Mailbox,
+                    result: Result<h0061::Ack, h0061::Nak>,
+                }
+                impl
+                    Commands<
+                        { mailbox::HIDIO_PKT_BUF_DATA_SIZE },
+                        { mailbox::HIDIO_PKT_BUF_DATA_SIZE - 1 },
+                        { mailbox::HIDIO_PKT_BUF_DATA_SIZE - 2 },
+                        { mailbox::HIDIO_PKT_BUF_DATA_SIZE - 4 },
+                        0,
+                    > for CommandInterface
+                {
+                    fn tx_packetbuffer_send(
+                        &mut self,
+                        buf: &mut mailbox::HidIoPacketBuffer,
+                    ) -> Result<(), CommandError> {
+                        if let Some(rcvmsg) = self.mailbox.try_send_message(mailbox::Message {
+                            src: self.src,
+                            dst: self.dst,
+                            data: buf.clone(),
+                        })? {
+                            // Handle ack/nak
+                            self.rx_message_handling(rcvmsg.data)?;
+                        }
+                        Ok(())
+                    }
+                    fn h0061_layerset_ack(&mut self, data: h0061::Ack) -> Result<(), CommandError> {
+                        self.result = Ok(data);
+                        Ok(())
+                    }
+                    fn h0061_layerset_nak(&mut self, data: h0061::Nak) -> Result<(), CommandError> {
+                        self.result = Err(data);
+                        Ok(())
+                    }
+                }
+                let mut intf = CommandInterface {
+                    src,
+                    dst,
+                    mailbox: self.mailbox.clone(),
+                    result: Err(h0061::Nak {}),
+                };
+
+                // Send command
+                let cmd = h0061::Cmd { layer };
+                if let Err(e) = intf.h0061_layerset(cmd.clone()) {
+                    return Promise::err(capnp::Error {
+                        kind: ::capnp::ErrorKind::Failed,
+                        description: format!("Error (layer_set_command): {:?} {:?}", cmd, e),
+                    });
+                }
+
+                // Wait for Ack/Nak
+                match intf.result {
+                    Ok(_msg) => Promise::ok(()),
+                    Err(e) => Promise::err(capnp::Error {
+                        kind: ::capnp::ErrorKind::Failed,
+                        description: format!("Error (layer_set_command): {e:?}"),
                     }),
                 }
             }
@@ -2349,6 +2435,7 @@ async fn server_subscriptions_keyboard(
                         || msg.data.id == HidIoCommandId::KllState
                         || msg.data.id == HidIoCommandId::HostMacro
                         || msg.data.id == HidIoCommandId::Volume
+                        || msg.data.id == HidIoCommandId::LayerSet
                         || msg.data.id == HidIoCommandId::ManufacturingResult);
             });
 
@@ -2539,6 +2626,21 @@ async fn server_subscriptions_keyboard(
                         result.set_app(&data.app);
                         Ok(())
                     }
+                    // fn h0061_layerset_cmd(
+                    //     &mut self,
+                    //     data: h0061::Cmd,
+                    // ) -> Result<h0061::Ack, h0061::Nak> {
+                    //     // Build Signal message
+                    //     let mut signal = self.request.get().init_signal();
+                    //     signal.set_time(
+                    //         std::time::SystemTime::now()
+                    //             .duration_since(std::time::UNIX_EPOCH)
+                    //             .expect("Time went backwards")
+                    //             .as_millis() as u64,
+                    //     );
+                    //     signal.init_data().init_layer_set().set_layer(data.layer);
+                    //     Ok(h0061::Ack {})
+                    // }
                 }
 
                 // Setup interface
@@ -2893,6 +2995,7 @@ pub fn supported_ids() -> Vec<HidIoCommandId> {
         HidIoCommandId::TerminalCmd,
         HidIoCommandId::TerminalOut,
         HidIoCommandId::Volume,
+        HidIoCommandId::LayerSet,
         HidIoCommandId::TestPacket,
     ]
 }

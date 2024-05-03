@@ -128,6 +128,7 @@ pub enum HidIoCommandId {
     ManufacturingResult = 0x51,
 
     Volume = 0x60,
+    LayerSet = 0x61,
 
     Unused = 0xFFFF,
 }

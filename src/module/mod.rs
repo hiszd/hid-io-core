@@ -151,6 +151,7 @@ pub fn supported_ids(recursive: bool) -> Vec<HidIoCommandId> {
         HidIoCommandId::OpenUrl,
         HidIoCommandId::SupportedIds,
         HidIoCommandId::Volume,
+        HidIoCommandId::LayerSet,
     ];
     if recursive {
         ids.extend(displayserver::supported_ids().iter().cloned());

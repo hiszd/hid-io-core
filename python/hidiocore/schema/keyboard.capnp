@@ -67,6 +67,10 @@ interface Keyboard extends(HidIo.Node) {
         # Subscribe to Volume
         # Useful for volume control
 
+        layerSet @7;
+        # Subscribe to LayerSet
+
+
         # ADD COMMANDS HERE
     }
 
@@ -75,6 +79,15 @@ interface Keyboard extends(HidIo.Node) {
         struct Cli {
             # Cli Message output text
             output @0 :Text;
+        }
+
+        struct KLL {
+        }
+
+        struct HostMacro {
+        }
+
+        struct Layer {
         }
 
         struct Volume {
@@ -91,13 +104,8 @@ interface Keyboard extends(HidIo.Node) {
             app @2 :Text;
         }
 
-        struct KLL {
-        }
-
-        struct HostMacro {
-        }
-
-        struct Layer {
+        struct LayerSet {
+          layer @0 :UInt16;
         }
 
         struct ManufacturingResult {
@@ -137,6 +145,9 @@ interface Keyboard extends(HidIo.Node) {
 
             volume @6 :Volume;
             # Volume command message
+
+            layerSet @7 :LayerSet;
+            # LayerSet command
         }
     }
 

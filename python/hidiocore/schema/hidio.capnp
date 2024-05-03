@@ -463,4 +463,7 @@ interface Node extends(Common.Node) {
     volCommand @9 (command :VolumeCmd);
     # Volume command
 
+    layerSetCommand @10 (layer :UInt16);
+    # LayerSet command
+
 }
