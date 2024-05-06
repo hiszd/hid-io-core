@@ -129,6 +129,7 @@ pub enum HidIoCommandId {
 
     Volume = 0x60,
     LayerSet = 0x61,
+    LayerChanged = 0x62,
 
     Unused = 0xFFFF,
 }

@@ -145,13 +145,13 @@ impl
 /// Supported Ids by this module
 /// recursive option applies supported ids from child modules as well
 pub fn supported_ids(recursive: bool) -> Vec<HidIoCommandId> {
-    //  ADD COMMANDS HERE
     let mut ids = vec![
         HidIoCommandId::GetInfo,
         HidIoCommandId::OpenUrl,
         HidIoCommandId::SupportedIds,
         HidIoCommandId::Volume,
         HidIoCommandId::LayerSet,
+        HidIoCommandId::LayerChanged,
     ];
     if recursive {
         ids.extend(displayserver::supported_ids().iter().cloned());

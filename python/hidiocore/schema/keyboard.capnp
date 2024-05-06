@@ -70,6 +70,8 @@ interface Keyboard extends(HidIo.Node) {
         layerSet @7;
         # Subscribe to LayerSet
 
+        layerChanged @8;
+        # Subscribe to LayerChanged
 
         # ADD COMMANDS HERE
     }
@@ -105,6 +107,10 @@ interface Keyboard extends(HidIo.Node) {
         }
 
         struct LayerSet {
+          layer @0 :UInt16;
+        }
+
+        struct LayerChanged {
           layer @0 :UInt16;
         }
 
@@ -148,6 +154,9 @@ interface Keyboard extends(HidIo.Node) {
 
             layerSet @7 :LayerSet;
             # LayerSet command
+
+            layerChanged @8 :LayerChanged;
+            # LayerChanged event
         }
     }
 

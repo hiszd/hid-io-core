@@ -466,4 +466,7 @@ interface Node extends(Common.Node) {
     layerSetCommand @10 (layer :UInt16);
     # LayerSet command
 
+    layerChangedEvent @11 (layer :UInt16);
+    # LayerChanged event
+
 }
